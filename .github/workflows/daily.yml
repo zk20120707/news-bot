@@ -141,4 +141,47 @@ jobs:
             }
           
           echo "✅ Issue created successfully"
+          
+      - name: Push to WeCom Bot
+        env:
+          WECOM_WEBHOOK_KEY: ${{ secrets.WECOM_WEBHOOK_KEY }}
+        run: |
+          TIME_SLOT="${{ steps.commit.outputs.time_slot }}"
+          TIME_LABEL="${{ steps.commit.outputs.time_label }}"
+          DATE="${{ steps.commit.outputs.date }}"
+          
+          FILENAME="daily/${DATE}-${TIME_SLOT}.md"
+          
+          if [ ! -f "$FILENAME" ]; then
+            echo "⚠️  File not found, skipping WeCom push"
+            exit 0
+          fi
+          
+          if [ -z "$WECOM_WEBHOOK_KEY" ]; then
+            echo "⚠️  WECOM_WEBHOOK_KEY not configured"
+            exit 0
+          fi
+          
+          echo "📤 Pushing to WeCom..."
+          
+          MD_CONTENT=$(cat "$FILENAME")
+          SUMMARY_CONTENT=$(echo "$MD_CONTENT" | head -c 3000)
+          
+          REPO_URL="https://github.com/${{ github.repository }}"
+          FULL_LINK="${REPO_URL}/blob/main/${FILENAME}"
+          
+          PUSH_CONTENT="${SUMMARY_CONTENT}
+
+---
+
+🔗 [查看完整日报](${FULL_LINK})"
+          
+          ESCAPED_CONTENT=$(echo "$PUSH_CONTENT" | jq -Rs .)
+          
+          curl -s -X POST "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=${WECOM_WEBHOOK_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "{\"msgtype\": \"markdown\", \"markdown\": {\"content\": ${ESCAPED_CONTENT}}}"
+          
+          echo "✅ WeCom push completed"
+
 
