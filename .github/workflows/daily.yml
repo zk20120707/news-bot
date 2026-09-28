@@ -1,96 +1,17 @@
-name: Daily Research & Tech Digest
+name: Hourly News Bot
 
 on:
   schedule:
-    - cron: "0 * * * *"   # 每小时整点运行一次
+    - cron: "0 * * * *"
   workflow_dispatch:
 
 jobs:
-  run:
+  build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      issues: write
-
     steps:
       - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-
       - run: npm install
-
-      - name: Run daily digest
-        env:
-          SILICONFLOW_API_KEY: ${{ secrets.SILICONFLOW_API_KEY }}
-        timeout-minutes: 15
-        run: node scripts/run.js
-
-      - name: Commit daily digest
-        id: commit
-        run: |
-          git config user.name "news-bot"
-          git config user.email "bot@users.noreply.github.com"
-          
-          git fetch origin main
-          git pull origin main --rebase --no-edit || {
-            git pull origin main --no-edit || {
-              git fetch origin main
-              git reset --hard origin/main
-            }
-          }
-          
-          CURRENT_HOUR=$(TZ='Asia/Shanghai' date +%H)
-          TIME_SLOT="hourly"
-          DATE=$(date +'%Y-%m-%d')
-          HOUR=$(TZ='Asia/Shanghai' date +'%H')
-          FILENAME="daily/${DATE}-${HOUR}shtur"
-          
-          echo "time_slot=${TIME_SLOT}" >> $GITHUB_OUTPUT
-          echo "date=${DATE}" >> $GITHUB_OUTPUT
-          echo "hour=${HOUR}" >> $GITHUB_OUTPUT
-          
-          git add daily/
-          git commit -m "chore: hourly digest ${DATE} ${HOUR}:00" || echo "No changes to commit"
-          git push origin main
-
-      - name: Push to WeCom Bot
-        env:
-          WECOM_WEBHOOK_KEY: ${{ secrets.WECOM_WEBHOOK_KEY }}
-        run: |
-          DATE="${{ steps.commit.outputs.date }}"
-          HOUR="${{ steps.commit.outputs.hour }}"
-          FILENAME="daily/${DATE}-${HOUR}shtur"
-          
-          if [ ! -f "$FILENAME" ]; then
-            echo "File not found, skipping"
-            exit 0
-          fi
-          
-          if [ -z "$WECOM_WEBHOOK_KEY" ]; then
-            echo "WECOM_WEBHOOK_KEY not configured"
-            exit 0
-          fi
-          
-          MD_CONTENT=$(cat "$FILENAME")
-          SUMMARY_CONTENT=$(echo "$MD_CONTENT" | head -c 3000)
-          
-          REPO_URL="https://github.com/${{ github.repository }}"
-          FULL_LINK="${REPO_URL}/blob/main/${FILENAME}"
-          
-          PUSH_CONTENT="${SUMMARY_CONTENT}
-
----
-
-🔗 [查看完整日报](${FULL_LINK})"
-          
-          ESCAPED_CONTENT=$(echo "$PUSH_CONTENT" | jq -Rs .)
-          
-          curl -s -X POST "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=${WECOM_WEBHOOK_KEY}" \
-            -H "Content-Type: application/json" \
-            -d "{\"msgtype\": \"markdown\", \"markdown\": {\"content\": ${ESCAPED_CONTENT}}}"
-          
-          echo "WeCom push completed"
+      - run: node scripts/run.js
