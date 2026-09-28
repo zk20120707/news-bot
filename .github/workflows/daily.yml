@@ -2,7 +2,7 @@ name: Hourly News Bot
 
 on:
   schedule:
-    - cron: "0 * * * *"
+    - cron: "0 0,3,6,9 * * *"   # UTC 0,3,6,9点 = 北京时间8,11,14,17点
   workflow_dispatch:
 
 jobs:
@@ -17,10 +17,48 @@ jobs:
           node-version: 20
       - run: npm install
       - run: node scripts/run.js
+      
       - name: Commit and push
+        id: commit
         run: |
           git config user.name "news-bot"
           git config user.email "bot@users.noreply.github.com"
           git add daily/
-          git commit -m "chore: hourly digest" || echo "No changes"
+          git commit -m "chore: news digest" || echo "No changes"
           git push
+          
+          # 获取最新的日报文件名
+          LATEST_FILE=$(ls -t daily/*.md | head -n 1)
+          echo "latest_file=$LATEST_FILE" >> $GITHUB_OUTPUT
+
+      - name: Push to WeCom
+        env:
+          WECOM_WEBHOOK_KEY: ${{ secrets.WECOM_WEBHOOK_KEY }}
+        run: |
+          LATEST_FILE="${{ steps.commit.outputs.latest_file }}"
+          
+          if [ ! -f "$LATEST_FILE" ]; then
+            echo "No file found"
+            exit 0
+          fi
+          
+          # 读取内容，截取前3000字
+          CONTENT=$(cat "$LATEST_FILE" | head -c 3000)
+          
+          # 生成完整链接
+          REPO_URL="https://github.com/${{ github.repository }}"
+          FILE_PATH=$(basename "$LATEST_FILE")
+          FULL_LINK="${REPO_URL}/blob/main/daily/${FILE_PATH}"
+          
+          # 构建推送内容
+          PUSH_CONTENT="${CONTENT}
+
+---
+🔗 [查看完整日报](${FULL_LINK})"
+          
+          # 转义并发送
+          ESCAPED=$(echo "$PUSH_CONTENT" | jq -Rs .)
+          
+          curl -X POST "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=${WECOM_WEBHOOK_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "{\"msgtype\":\"markdown\",\"markdown\":{\"content\":${ESCAPED}}}"
