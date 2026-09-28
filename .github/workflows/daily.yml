@@ -1,9 +1,10 @@
 name: Daily Research & Tech Digest
 
 on:
-    schedule:
-    - cron: "0 1 * * *"   # UTC 01:00 = 北京时间 09:00 - 早上9点
-    - cron: "0 13 * * *"  # UTC 13:00 = 北京时间 21:00 - 晚上9点
+  schedule:
+    - cron: "0 * * * *"   # 每小时整点运行一次
+  workflow_dispatch:
+
 
   workflow_dispatch:
 
