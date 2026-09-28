@@ -5,9 +5,6 @@ on:
     - cron: "0 * * * *"   # 每小时整点运行一次
   workflow_dispatch:
 
-
-  workflow_dispatch:
-
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -29,7 +26,7 @@ jobs:
       - name: Run daily digest
         env:
           SILICONFLOW_API_KEY: ${{ secrets.SILICONFLOW_API_KEY }}
-        timeout-minutes: 15  # 增加到15分钟，确保有足够时间完成RSS抓取、内容抓取和LLM生成
+        timeout-minutes: 15
         run: node scripts/run.js
 
       - name: Commit daily digest
@@ -38,132 +35,45 @@ jobs:
           git config user.name "news-bot"
           git config user.email "bot@users.noreply.github.com"
           
-          # 获取最新的远程更改
           git fetch origin main
-          
-          # 尝试合并远程更改（使用 rebase 保持历史干净）
           git pull origin main --rebase --no-edit || {
-            echo "Rebase failed, trying merge instead..."
             git pull origin main --no-edit || {
-              echo "Merge also failed, resetting to remote..."
               git fetch origin main
               git reset --hard origin/main
             }
           }
           
-          # 判断是上午还是下午（UTC+8 时区）
           CURRENT_HOUR=$(TZ='Asia/Shanghai' date +%H)
-          if [ "$CURRENT_HOUR" -lt 12 ]; then
-            TIME_SLOT="morning"
-            TIME_LABEL="上午"
-          else
-            TIME_SLOT="evening"
-            TIME_LABEL="晚上"
-          fi
-          
-          # 保存到输出变量，供后续步骤使用
-          echo "time_slot=${TIME_SLOT}" >> $GITHUB_OUTPUT
-          echo "time_label=${TIME_LABEL}" >> $GITHUB_OUTPUT
-          
-          # 添加并提交新的日报文件
+          TIME_SLOT="hourly"
           DATE=$(date +'%Y-%m-%d')
+          HOUR=$(TZ='Asia/Shanghai' date +'%H')
+          FILENAME="daily/${DATE}-${HOUR}shtur"
+          
+          echo "time_slot=${TIME_SLOT}" >> $GITHUB_OUTPUT
           echo "date=${DATE}" >> $GITHUB_OUTPUT
+          echo "hour=${HOUR}" >> $GITHUB_OUTPUT
           
           git add daily/
-          git commit -m "chore: daily research & tech digest ${DATE} ${TIME_LABEL}" || echo "No changes to commit"
-          
-          # 推送更改
+          git commit -m "chore: hourly digest ${DATE} ${HOUR}:00" || echo "No changes to commit"
           git push origin main
-      
-      - name: Create GitHub Issue
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # 从上一步获取变量
-          TIME_SLOT="${{ steps.commit.outputs.time_slot }}"
-          TIME_LABEL="${{ steps.commit.outputs.time_label }}"
-          DATE="${{ steps.commit.outputs.date }}"
-          
-          # 生成文件名
-          FILENAME="daily/${DATE}-${TIME_SLOT}.md"
-          
-          # 检查文件是否存在
-          if [ ! -f "$FILENAME" ]; then
-            echo "⚠️  File $FILENAME not found, skipping issue creation"
-            exit 0
-          fi
-          
-          # 读取 Markdown 文件内容
-          MD_CONTENT=$(cat "$FILENAME")
-          
-          # 创建 Issue 标题
-          ISSUE_TITLE="📰 科研 & 技术热点日报 - ${DATE} ${TIME_LABEL}"
-          
-          # 定义需要的标签及其配置
-          # 格式: "标签名|颜色|描述"
-          LABEL_CONFIGS=(
-            "daily-digest|0E8A16|Daily research & tech digest"
-            "automated|7057FF|Automated by GitHub Actions"
-          )
-          
-          # 自动创建标签（如果不存在）
-          echo "🏷️  Checking and creating labels..."
-          for LABEL_CONFIG in "${LABEL_CONFIGS[@]}"; do
-            # 解析配置
-            IFS='|' read -r LABEL COLOR DESCRIPTION <<< "$LABEL_CONFIG"
-            
-            # 检查标签是否存在（使用更精确的匹配）
-            LABEL_EXISTS=$(gh label list --json name --jq ".[] | select(.name==\"${LABEL}\") | .name" 2>/dev/null | grep -q "^${LABEL}$" && echo "yes" || echo "no")
-            
-            if [ "$LABEL_EXISTS" = "no" ]; then
-              echo "   📝 Creating label: ${LABEL}"
-              # 创建标签
-              gh label create "${LABEL}" \
-                --color "${COLOR}" \
-                --description "${DESCRIPTION}" 2>&1 || {
-                  echo "   ⚠️  Failed to create label: ${LABEL}, but continuing..."
-                }
-            else
-              echo "   ✓ Label already exists: ${LABEL}"
-            fi
-          done
-          
-          # 使用 GitHub CLI 创建 Issue
-          echo "📝 Creating GitHub Issue: $ISSUE_TITLE"
-          
-          # 创建 Issue（带标签）
-          gh issue create \
-            --title "$ISSUE_TITLE" \
-            --body "$MD_CONTENT" \
-            --label "daily-digest" \
-            --label "automated" 2>&1 || {
-              echo "❌ Issue creation failed, but continuing workflow"
-              exit 0  # 不中断工作流
-            }
-          
-          echo "✅ Issue created successfully"
-          
+
       - name: Push to WeCom Bot
         env:
           WECOM_WEBHOOK_KEY: ${{ secrets.WECOM_WEBHOOK_KEY }}
         run: |
-          TIME_SLOT="${{ steps.commit.outputs.time_slot }}"
-          TIME_LABEL="${{ steps.commit.outputs.time_label }}"
           DATE="${{ steps.commit.outputs.date }}"
-          
-          FILENAME="daily/${DATE}-${TIME_SLOT}.md"
+          HOUR="${{ steps.commit.outputs.hour }}"
+          FILENAME="daily/${DATE}-${HOUR}shtur"
           
           if [ ! -f "$FILENAME" ]; then
-            echo "⚠️  File not found, skipping WeCom push"
+            echo "File not found, skipping"
             exit 0
           fi
           
           if [ -z "$WECOM_WEBHOOK_KEY" ]; then
-            echo "⚠️  WECOM_WEBHOOK_KEY not configured"
+            echo "WECOM_WEBHOOK_KEY not configured"
             exit 0
           fi
-          
-          echo "📤 Pushing to WeCom..."
           
           MD_CONTENT=$(cat "$FILENAME")
           SUMMARY_CONTENT=$(echo "$MD_CONTENT" | head -c 3000)
@@ -183,6 +93,4 @@ jobs:
             -H "Content-Type: application/json" \
             -d "{\"msgtype\": \"markdown\", \"markdown\": {\"content\": ${ESCAPED_CONTENT}}}"
           
-          echo "✅ WeCom push completed"
-
-
+          echo "WeCom push completed"
